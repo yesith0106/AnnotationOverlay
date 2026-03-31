@@ -56,13 +56,15 @@ final class TapInterceptorUIView: UIView {
         let pointInSelf = gesture.location(in: self)
         let windowPoint = convert(pointInSelf, to: nil)
 
+        // Step out of hit-test, find the initial view, then drill to the deepest child.
         isUserInteractionEnabled = false
-        let hitView = window.hitTest(windowPoint, with: nil)
+        let initialHit = window.hitTest(windowPoint, with: nil)
         isUserInteractionEnabled = true
 
-        if let hit = hitView, isOwnOverlayView(hit) { return }
+        guard let root = initialHit, !isOwnOverlayView(root) else { return }
 
-        onTap?(windowPoint, hitView)
+        let deepest = ViewInspector.deepestView(at: windowPoint, in: root)
+        onTap?(windowPoint, deepest)
     }
 
     private func isOwnOverlayView(_ view: UIView) -> Bool {
@@ -83,7 +85,7 @@ final class TapInterceptorUIView: UIView {
 import AppKit
 
 /// A transparent NSView overlay that intercepts clicks when annotation mode is active,
-/// hit-tests through itself to find the underlying view, and reports back.
+/// walks the subview tree to find the deepest view under the cursor, and reports back.
 struct TapInterceptorView: NSViewRepresentable {
     let isActive: Bool
     let onTap: TapHandler
@@ -118,13 +120,11 @@ final class TapInterceptorNSView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    // Only claim the click when annotation mode is active.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard isActive else { return nil }
         return super.hitTest(point)
     }
 
-    // Accept first mouse so clicks register even when the window isn't focused.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         return isActive
     }
@@ -135,19 +135,20 @@ final class TapInterceptorNSView: NSView {
         let pointInSelf = gesture.location(in: self)
         let windowPoint = convert(pointInSelf, to: nil)
 
-        // Temporarily hide from hit-testing to find the real view underneath.
+        // Step out of hit-test, then walk the entire subview tree directly.
+        // This avoids NSView.hitTest coordinate-space issues and finds
+        // non-interactive SwiftUI elements that hitTest would skip.
         isActive = false
-        let contentPoint = contentView.convert(windowPoint, from: nil)
-        let hitView = contentView.hitTest(contentPoint)
+        let deepest = ViewInspector.deepestView(at: windowPoint, in: contentView)
         isActive = true
 
-        if let hit = hitView, isOwnOverlayView(hit) { return }
+        if isOwnOverlayView(deepest) { return }
 
         // Convert to top-left origin for consistency with SwiftUI coordinates.
         let flippedY = contentView.bounds.height - windowPoint.y
         let normalizedPoint = CGPoint(x: windowPoint.x, y: flippedY)
 
-        onTap?(normalizedPoint, hitView)
+        onTap?(normalizedPoint, deepest)
     }
 
     private func isOwnOverlayView(_ view: NSView) -> Bool {

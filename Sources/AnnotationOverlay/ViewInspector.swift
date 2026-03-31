@@ -84,6 +84,21 @@ extension ViewInspector {
         "View", "ContentView", "ViewHost", "TransitionView",
         "PlatformViewHost", "LayoutContainer",
     ]
+
+    /// Check if a view belongs to our annotation overlay chrome.
+    fileprivate static func isOverlayView(_ view: PlatformView) -> Bool {
+        #if canImport(UIKit)
+        if let id = view.accessibilityIdentifier, id.hasPrefix("_annotationOverlay") {
+            return true
+        }
+        #elseif canImport(AppKit)
+        let id = view.accessibilityIdentifier()
+        if id.hasPrefix("_annotationOverlay") {
+            return true
+        }
+        #endif
+        return false
+    }
 }
 
 // MARK: - iOS (UIKit)
@@ -92,6 +107,30 @@ extension ViewInspector {
 import UIKit
 
 extension ViewInspector {
+
+    /// Walk the entire subview tree to find the deepest, most specific view
+    /// containing the given window-coordinate point.
+    ///
+    /// Unlike `UIView.hitTest`, this ignores `isUserInteractionEnabled` and
+    /// gesture recognizers — it purely checks geometric containment so we can
+    /// find non-interactive SwiftUI elements (Text, Image, etc.) that don't
+    /// normally participate in hit-testing.
+    static func deepestView(at windowPoint: CGPoint, in root: UIView) -> UIView {
+        // Walk subviews front-to-back (reversed because UIView.subviews is back-to-front)
+        for subview in root.subviews.reversed() {
+            guard !subview.isHidden, subview.alpha > 0.01 else { continue }
+
+            // Skip our own overlay views
+            if isOverlayView(subview) { continue }
+
+            let subLocal = subview.convert(windowPoint, from: nil)
+            guard subview.bounds.contains(subLocal) else { continue }
+
+            return deepestView(at: windowPoint, in: subview)
+        }
+
+        return root
+    }
 
     fileprivate static func windowFrame(for view: UIView) -> CGRect {
         view.convert(view.bounds, to: nil)
@@ -205,6 +244,28 @@ extension ViewInspector {
 import AppKit
 
 extension ViewInspector {
+
+    /// Walk the entire subview tree to find the deepest, most specific view
+    /// containing the given window-coordinate point.
+    ///
+    /// This bypasses `NSView.hitTest` entirely — which avoids coordinate-space
+    /// confusion and finds non-interactive SwiftUI elements that `hitTest` skips.
+    static func deepestView(at windowPoint: CGPoint, in root: NSView) -> NSView {
+        // NSView.subviews is back-to-front; reversed gives us front-to-back
+        for subview in root.subviews.reversed() {
+            guard !subview.isHidden, subview.alphaValue > 0.01 else { continue }
+
+            // Skip our own overlay views
+            if isOverlayView(subview) { continue }
+
+            let subLocal = subview.convert(windowPoint, from: nil)
+            guard subview.bounds.contains(subLocal) else { continue }
+
+            return deepestView(at: windowPoint, in: subview)
+        }
+
+        return root
+    }
 
     fileprivate static func windowFrame(for view: NSView) -> CGRect {
         guard let window = view.window else { return view.frame }
