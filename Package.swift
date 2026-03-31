@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "AnnotationOverlay",
-    platforms: [.iOS(.v17), .macOS(.v14)],
+    platforms: [.iOS(.v17), .macOS(.v13)],
     products: [
         .library(name: "AnnotationOverlay", targets: ["AnnotationOverlay"]),
     ],

@@ -1,26 +1,25 @@
 import SwiftUI
-import Observation
+import Combine
 
 /// Central state for the annotation overlay session.
 ///
 /// Manages the list of annotations, the active/editing state,
 /// and the annotation mode toggle.
-@Observable
-public final class AnnotationStore {
+public final class AnnotationStore: ObservableObject {
 
     // MARK: - Published State
 
     /// All annotations in the current session, ordered by creation.
-    public private(set) var annotations: [Annotation] = []
+    @Published public private(set) var annotations: [Annotation] = []
 
     /// Whether annotation mode is active (taps are intercepted).
-    public var isAnnotationMode: Bool = false
+    @Published public var isAnnotationMode: Bool = false
 
     /// The annotation currently being edited (note input visible).
-    public var editingAnnotationID: UUID? = nil
+    @Published public var editingAnnotationID: UUID? = nil
 
     /// Brief feedback message shown after clipboard copy, etc.
-    public var toastMessage: String? = nil
+    @Published public var toastMessage: String? = nil
 
     // MARK: - Private
 

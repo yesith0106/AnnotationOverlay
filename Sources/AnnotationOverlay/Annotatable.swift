@@ -46,7 +46,7 @@ private struct AnnotatableModifier: ViewModifier {
     let screenName: String
     let externalStore: AnnotationStore?
 
-    @State private var internalStore = AnnotationStore()
+    @StateObject private var internalStore = AnnotationStore()
 
     private var store: AnnotationStore {
         externalStore ?? internalStore
@@ -80,7 +80,7 @@ private struct AnnotatableModifier: ViewModifier {
 public struct AnnotationOverlay<Content: View>: View {
     private let content: Content
     private let screenName: String
-    @State private var store = AnnotationStore()
+    @StateObject private var store = AnnotationStore()
 
     public init(
         screenName: String = "Screen",

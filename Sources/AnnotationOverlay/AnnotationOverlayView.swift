@@ -7,7 +7,7 @@ import SwiftUI
 struct AnnotationOverlayView<Content: View>: View {
     let content: Content
     let screenName: String
-    @Bindable var store: AnnotationStore
+    @ObservedObject var store: AnnotationStore
 
     @State private var overlayOrigin: CGPoint = .zero
 
@@ -292,7 +292,7 @@ private struct NoteEditorCard: View {
 // MARK: - Floating Toolbar
 
 private struct FloatingToolbarView: View {
-    @Bindable var store: AnnotationStore
+    @ObservedObject var store: AnnotationStore
     let screenName: String
 
     var body: some View {
