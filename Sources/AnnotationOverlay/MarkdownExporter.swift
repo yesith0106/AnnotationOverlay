@@ -1,4 +1,10 @@
+import Foundation
+
+#if canImport(UIKit)
 import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 /// Formats annotations as structured markdown and copies to the system pasteboard.
 ///
@@ -16,7 +22,7 @@ public enum MarkdownExporter {
         screenName: String = "Screen"
     ) -> String {
         let markdown = format(annotations: annotations, screenName: screenName)
-        UIPasteboard.general.string = markdown
+        copyString(markdown)
         return markdown
     }
 
@@ -65,6 +71,18 @@ public enum MarkdownExporter {
         }
 
         return "[\n\(entries.joined(separator: ",\n"))\n]"
+    }
+
+    // MARK: - Clipboard
+
+    /// Copy a string to the platform pasteboard.
+    public static func copyString(_ string: String) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = string
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+        #endif
     }
 
     // MARK: - Private

@@ -1,4 +1,4 @@
-import SwiftUI
+import Foundation
 
 // MARK: - Annotation
 
@@ -20,19 +20,19 @@ public struct Annotation: Identifiable {
 
 // MARK: - ViewMetadata
 
-/// Metadata captured from a tapped UI element's backing UIKit view.
+/// Metadata captured from a tapped UI element's backing platform view.
 public struct ViewMetadata {
     /// Inferred SwiftUI view type (e.g. "Button", "Text", "Image").
     public let viewType: String
 
-    /// The element's `accessibilityIdentifier`, if set.
+    /// The element's accessibility identifier, if set.
     public let accessibilityIdentifier: String?
 
-    /// The element's `accessibilityLabel`, if set.
+    /// The element's accessibility label, if set.
     public let accessibilityLabel: String?
 
-    /// Raw accessibility traits on the element.
-    public let accessibilityTraits: UIAccessibilityTraits
+    /// Platform-agnostic accessibility trait names (e.g. "button", "image", "header").
+    public let accessibilityTraits: [String]
 
     /// Frame in the element's parent coordinate space.
     public let frame: CGRect
@@ -43,7 +43,7 @@ public struct ViewMetadata {
     /// Reconstructed view hierarchy path (e.g. "NavigationStack > VStack > Button").
     public let viewPath: String
 
-    /// The raw UIKit class name, for advanced debugging.
+    /// The raw platform class name, for advanced debugging.
     public let rawClassName: String
 }
 
@@ -52,19 +52,6 @@ public struct ViewMetadata {
 extension ViewMetadata {
     /// Human-readable description of the element's accessibility traits.
     public var traitsDescription: String {
-        var parts: [String] = []
-        if accessibilityTraits.contains(.button) { parts.append("button") }
-        if accessibilityTraits.contains(.link) { parts.append("link") }
-        if accessibilityTraits.contains(.image) { parts.append("image") }
-        if accessibilityTraits.contains(.header) { parts.append("header") }
-        if accessibilityTraits.contains(.staticText) { parts.append("staticText") }
-        if accessibilityTraits.contains(.searchField) { parts.append("searchField") }
-        if accessibilityTraits.contains(.adjustable) { parts.append("adjustable") }
-        if accessibilityTraits.contains(.selected) { parts.append("selected") }
-        if accessibilityTraits.contains(.notEnabled) { parts.append("notEnabled") }
-        if accessibilityTraits.contains(.updatesFrequently) { parts.append("updatesFrequently") }
-        if accessibilityTraits.contains(.summaryElement) { parts.append("summaryElement") }
-        if accessibilityTraits.contains(.tabBar) { parts.append("tabBar") }
-        return parts.isEmpty ? "none" : parts.joined(separator: ", ")
+        accessibilityTraits.isEmpty ? "none" : accessibilityTraits.joined(separator: ", ")
     }
 }

@@ -23,7 +23,7 @@ struct AnnotationOverlayView<Content: View>: View {
                     .allowsHitTesting(false)
                     .accessibilityIdentifier("_annotationOverlayMarkers")
 
-                // 3. Tap interceptor (transparent UIKit overlay)
+                // 3. Tap interceptor (transparent platform overlay)
                 TapInterceptorView(
                     isActive: store.isAnnotationMode,
                     onTap: { windowPoint, hitView in
@@ -48,7 +48,6 @@ struct AnnotationOverlayView<Content: View>: View {
                 }
             }
             .onAppear {
-                // Capture the overlay's origin in window coordinates
                 let frame = geo.frame(in: .global)
                 overlayOrigin = frame.origin
             }
@@ -57,7 +56,7 @@ struct AnnotationOverlayView<Content: View>: View {
 
     // MARK: - Tap Handler
 
-    private func handleTap(windowPoint: CGPoint, hitView: UIView?, in geo: GeometryProxy) {
+    private func handleTap(windowPoint: CGPoint, hitView: PlatformView?, in geo: GeometryProxy) {
         guard let hitView else { return }
 
         // Check if tap is near an existing annotation — if so, edit it
@@ -128,12 +127,10 @@ struct AnnotationOverlayView<Content: View>: View {
         let elementBottom = frame.maxY - overlayOrigin.y
         let elementCenterX = frame.midX - overlayOrigin.x
 
-        // Position the editor below the element, clamped to screen
         let editorWidth: CGFloat = min(280, geo.size.width - 32)
         let editorX = clamp(elementCenterX, min: editorWidth / 2 + 16, max: geo.size.width - editorWidth / 2 - 16)
         let editorY: CGFloat = {
             let preferred = elementBottom + 12
-            // If it would go off the bottom, place it above the element
             if preferred + 120 > geo.size.height {
                 return (frame.minY - overlayOrigin.y) - 80
             }
@@ -340,9 +337,8 @@ private struct FloatingToolbarView: View {
                 // Copy as JSON
                 toolbarButton(icon: "curlybraces", isActive: false) {
                     guard !store.annotations.isEmpty else { return }
-                    UIPasteboard.general.string = MarkdownExporter.exportJSON(
-                        annotations: store.annotations
-                    )
+                    let json = MarkdownExporter.exportJSON(annotations: store.annotations)
+                    MarkdownExporter.copyString(json)
                     withAnimation(.spring(duration: 0.3)) {
                         store.showToast("Copied JSON to clipboard")
                     }

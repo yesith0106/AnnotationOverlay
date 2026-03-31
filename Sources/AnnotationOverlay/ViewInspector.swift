@@ -1,19 +1,15 @@
-import UIKit
-
-/// Extracts metadata from a UIKit view that backs a SwiftUI element.
+/// Extracts metadata from a platform-native view that backs a SwiftUI element.
 ///
-/// SwiftUI renders through UIKit hosting views. This inspector walks the
-/// UIView hierarchy to infer the original SwiftUI type, accessibility info,
-/// frame, and a rough hierarchy path.
+/// SwiftUI renders through platform hosting views (UIKit on iOS, AppKit on macOS).
+/// This inspector walks the view hierarchy to infer the original SwiftUI type,
+/// accessibility info, frame, and a rough hierarchy path.
 enum ViewInspector {
 
-    // MARK: - Public
-
-    /// Build a `ViewMetadata` snapshot from a hit-tested UIView.
-    static func extractMetadata(from view: UIView) -> ViewMetadata {
+    /// Build a `ViewMetadata` snapshot from a hit-tested platform view.
+    static func extractMetadata(from view: PlatformView) -> ViewMetadata {
         let rawClassName = String(describing: type(of: view))
         let viewType = inferSwiftUIType(from: view, className: rawClassName)
-        let windowFrame = view.convert(view.bounds, to: nil)
+        let windowFrame = windowFrame(for: view)
         let parentFrame = view.frame
         let path = buildViewPath(from: view)
 
@@ -21,18 +17,87 @@ enum ViewInspector {
             viewType: viewType,
             accessibilityIdentifier: findAccessibilityIdentifier(from: view),
             accessibilityLabel: findAccessibilityLabel(from: view),
-            accessibilityTraits: view.accessibilityTraits,
+            accessibilityTraits: extractTraits(from: view),
             frame: parentFrame,
             windowFrame: windowFrame,
             viewPath: path,
             rawClassName: rawClassName
         )
     }
+}
 
-    // MARK: - Type Inference
+// MARK: - Shared Helpers
 
-    /// Map UIKit backing view class names and traits to SwiftUI type names.
-    private static func inferSwiftUIType(from view: UIView, className: String) -> String {
+extension ViewInspector {
+
+    /// Strip SwiftUI/platform internal prefixes and generic parameters from a class name.
+    fileprivate static func cleanClassName(_ name: String) -> String {
+        var cleaned = name
+
+        for prefix in ["SwiftUI.", "_NS", "NS", "_UI", "UI", "_", "Hosting"] {
+            if cleaned.hasPrefix(prefix) && cleaned.count > prefix.count {
+                cleaned = String(cleaned.dropFirst(prefix.count))
+            }
+        }
+
+        if let bracket = cleaned.firstIndex(of: "<") {
+            cleaned = String(cleaned[..<bracket])
+        }
+
+        for noise in ["Representable", "Platform", "Container", "Wrapper"] {
+            cleaned = cleaned.replacingOccurrences(of: noise, with: "")
+        }
+
+        return cleaned.isEmpty ? "View" : cleaned
+    }
+
+    /// Class-name-based heuristics shared across platforms.
+    fileprivate static func inferFromClassName(_ className: String) -> String? {
+        let lowered = className.lowercased()
+
+        if lowered.contains("button") { return "Button" }
+        if lowered.contains("textfield") { return "TextField" }
+        if lowered.contains("textdisplay") || lowered.contains("statictext") { return "Text" }
+        if lowered.contains("cgdrawingview") { return "Shape/Canvas" }
+        if lowered.contains("imageview") { return "Image" }
+        if lowered.contains("switch") || lowered.contains("toggle") { return "Toggle" }
+        if lowered.contains("slider") { return "Slider" }
+        if lowered.contains("scrollview") { return "ScrollView" }
+        if lowered.contains("listview") || lowered.contains("tableview") { return "List" }
+        if lowered.contains("collectionview") || lowered.contains("gridview") { return "Grid" }
+        if lowered.contains("navigationbar") || lowered.contains("toolbar") { return "Toolbar" }
+        if lowered.contains("tabbar") || lowered.contains("tabview") { return "TabView" }
+        if lowered.contains("picker") { return "Picker" }
+        if lowered.contains("mapview") { return "Map" }
+
+        return nil
+    }
+
+    /// True if the raw class name indicates a hosting view root.
+    fileprivate static func isHostingView(_ className: String) -> Bool {
+        className.contains("HostingView") || className.contains("_UIHostingView")
+            || className.contains("_NSHostingView")
+    }
+
+    /// Names to skip when building the view path.
+    fileprivate static let pathSkipNames: Set<String> = [
+        "View", "ContentView", "ViewHost", "TransitionView",
+        "PlatformViewHost", "LayoutContainer",
+    ]
+}
+
+// MARK: - iOS (UIKit)
+
+#if canImport(UIKit)
+import UIKit
+
+extension ViewInspector {
+
+    fileprivate static func windowFrame(for view: UIView) -> CGRect {
+        view.convert(view.bounds, to: nil)
+    }
+
+    fileprivate static func inferSwiftUIType(from view: UIView, className: String) -> String {
         // Direct UIKit type matches
         if view is UIButton { return "Button" }
         if view is UILabel { return "Text" }
@@ -52,23 +117,8 @@ enum ViewInspector {
         if view is UIDatePicker { return "DatePicker" }
         if view is UIStepper { return "Stepper" }
 
-        // SwiftUI internal class name heuristics
-        let lowered = className.lowercased()
-
-        if lowered.contains("button") { return "Button" }
-        if lowered.contains("textfield") { return "TextField" }
-        if lowered.contains("textdisplay") || lowered.contains("statictext") { return "Text" }
-        if lowered.contains("cgdrawingview") { return "Shape/Canvas" }
-        if lowered.contains("imageview") { return "Image" }
-        if lowered.contains("switch") || lowered.contains("toggle") { return "Toggle" }
-        if lowered.contains("slider") { return "Slider" }
-        if lowered.contains("scrollview") { return "ScrollView" }
-        if lowered.contains("listview") || lowered.contains("tableview") { return "List" }
-        if lowered.contains("collectionview") || lowered.contains("gridview") { return "Grid" }
-        if lowered.contains("navigationbar") { return "NavigationBar" }
-        if lowered.contains("tabbar") { return "TabBar" }
-        if lowered.contains("picker") { return "Picker" }
-        if lowered.contains("mapview") { return "Map" }
+        // Class name heuristics
+        if let match = inferFromClassName(className) { return match }
 
         // Accessibility-trait-based fallback
         let traits = view.accessibilityTraits
@@ -81,100 +131,203 @@ enum ViewInspector {
         if traits.contains(.adjustable) { return "Slider/Stepper" }
         if traits.contains(.tabBar) { return "TabView" }
 
-        // Clean up the raw class name as a last resort
         return cleanClassName(className)
     }
 
-    /// Strip SwiftUI/UIKit internal prefixes and generic parameters.
-    private static func cleanClassName(_ name: String) -> String {
-        var cleaned = name
-
-        // Strip common prefixes
-        for prefix in ["SwiftUI.", "_UI", "UI", "_", "Hosting"] {
-            if cleaned.hasPrefix(prefix) && cleaned.count > prefix.count {
-                cleaned = String(cleaned.dropFirst(prefix.count))
-            }
-        }
-
-        // Truncate generic type parameters
-        if let bracket = cleaned.firstIndex(of: "<") {
-            cleaned = String(cleaned[..<bracket])
-        }
-
-        // Remove "Representable", "Platform", "Container" noise
-        for noise in ["Representable", "Platform", "Container", "Wrapper"] {
-            cleaned = cleaned.replacingOccurrences(of: noise, with: "")
-        }
-
-        return cleaned.isEmpty ? "View" : cleaned
+    fileprivate static func extractTraits(from view: UIView) -> [String] {
+        var parts: [String] = []
+        let t = view.accessibilityTraits
+        if t.contains(.button) { parts.append("button") }
+        if t.contains(.link) { parts.append("link") }
+        if t.contains(.image) { parts.append("image") }
+        if t.contains(.header) { parts.append("header") }
+        if t.contains(.staticText) { parts.append("staticText") }
+        if t.contains(.searchField) { parts.append("searchField") }
+        if t.contains(.adjustable) { parts.append("adjustable") }
+        if t.contains(.selected) { parts.append("selected") }
+        if t.contains(.notEnabled) { parts.append("notEnabled") }
+        if t.contains(.updatesFrequently) { parts.append("updatesFrequently") }
+        if t.contains(.summaryElement) { parts.append("summaryElement") }
+        if t.contains(.tabBar) { parts.append("tabBar") }
+        return parts
     }
 
-    // MARK: - Accessibility Lookup
-
-    /// Walk up the view hierarchy to find the nearest accessibility identifier.
-    private static func findAccessibilityIdentifier(from view: UIView) -> String? {
+    fileprivate static func findAccessibilityIdentifier(from view: UIView) -> String? {
         var current: UIView? = view
-        var depth = 0
-        while let v = current, depth < 5 {
-            if let id = v.accessibilityIdentifier, !id.isEmpty {
-                return id
-            }
+        for _ in 0..<5 {
+            guard let v = current else { break }
+            if let id = v.accessibilityIdentifier, !id.isEmpty { return id }
             current = v.superview
-            depth += 1
         }
         return nil
     }
 
-    /// Walk up the view hierarchy to find the nearest accessibility label.
-    private static func findAccessibilityLabel(from view: UIView) -> String? {
+    fileprivate static func findAccessibilityLabel(from view: UIView) -> String? {
         var current: UIView? = view
-        var depth = 0
-        while let v = current, depth < 5 {
-            if let label = v.accessibilityLabel, !label.isEmpty {
-                return label
-            }
+        for _ in 0..<5 {
+            guard let v = current else { break }
+            if let label = v.accessibilityLabel, !label.isEmpty { return label }
             current = v.superview
-            depth += 1
         }
         return nil
     }
 
-    // MARK: - View Path
-
-    /// Walk up the superview chain and build a hierarchy path string.
-    private static func buildViewPath(from view: UIView) -> String {
+    fileprivate static func buildViewPath(from view: UIView) -> String {
         var components: [String] = []
         var current: UIView? = view
-        var seen = Set<String>() // deduplicate consecutive identical types
+        var seen = Set<String>()
 
         while let v = current {
             let raw = String(describing: type(of: v))
-            let name = inferSwiftUIType(from: v, className: raw)
 
-            // Stop at the hosting view root
-            if raw.contains("UIHostingView") || raw.contains("_UIHostingView") {
+            if isHostingView(raw) {
                 components.append("HostingView")
                 break
             }
 
-            // Skip generic containers and duplicates for a cleaner path
-            let skip = ["View", "ContentView", "ViewHost", "TransitionView",
-                        "PlatformViewHost", "LayoutContainer"]
-            if !skip.contains(name) && !seen.contains(name) {
+            let name = inferSwiftUIType(from: v, className: raw)
+            if !pathSkipNames.contains(name) && !seen.contains(name) {
                 components.append(name)
                 seen.insert(name)
             }
 
             current = v.superview
-
-            // Safety cap
             if components.count >= 10 { break }
         }
 
-        if components.isEmpty {
-            return "View"
-        }
-
-        return components.reversed().joined(separator: " > ")
+        return components.isEmpty ? "View" : components.reversed().joined(separator: " > ")
     }
 }
+
+// MARK: - macOS (AppKit)
+
+#elseif canImport(AppKit)
+import AppKit
+
+extension ViewInspector {
+
+    fileprivate static func windowFrame(for view: NSView) -> CGRect {
+        guard let window = view.window else { return view.frame }
+        let frameInWindow = view.convert(view.bounds, to: nil)
+        // Convert from AppKit's bottom-left origin to top-left for consistency
+        let windowHeight = window.contentView?.bounds.height ?? window.frame.height
+        return CGRect(
+            x: frameInWindow.origin.x,
+            y: windowHeight - frameInWindow.origin.y - frameInWindow.height,
+            width: frameInWindow.width,
+            height: frameInWindow.height
+        )
+    }
+
+    fileprivate static func inferSwiftUIType(from view: NSView, className: String) -> String {
+        // Direct AppKit type matches
+        if view is NSButton { return "Button" }
+        if view is NSImageView { return "Image" }
+        if view is NSTextField {
+            let tf = view as! NSTextField
+            return tf.isEditable ? "TextField" : "Text"
+        }
+        if view is NSTextView { return "TextEditor" }
+        if view is NSSwitch { return "Toggle" }
+        if view is NSSlider { return "Slider" }
+        if view is NSScrollView { return "ScrollView" }
+        if view is NSTableView { return "List" }
+        if view is NSCollectionView { return "Grid" }
+        if view is NSProgressIndicator { return "ProgressView" }
+        if view is NSSegmentedControl { return "Picker (segmented)" }
+        if view is NSDatePicker { return "DatePicker" }
+        if view is NSStepper { return "Stepper" }
+        if view is NSTabView { return "TabView" }
+        if view is NSSplitView { return "HSplitView/VSplitView" }
+        if view is NSStackView { return "HStack/VStack" }
+
+        // Class name heuristics
+        if let match = inferFromClassName(className) { return match }
+
+        // Accessibility-role-based fallback
+        let role = view.accessibilityRole()
+        if role == .button { return "Button" }
+        if role == .image { return "Image" }
+        if role == .link { return "Link" }
+        if role == .staticText { return "Text" }
+        if role == .textField { return "TextField" }
+        if role == .slider { return "Slider" }
+        if role == .checkBox { return "Toggle" }
+        if role == .list { return "List" }
+        if role == .table { return "List" }
+        if role == .tabGroup { return "TabView" }
+        if role == .toolbar { return "Toolbar" }
+        if role == .scrollArea { return "ScrollView" }
+        if role == .progressIndicator { return "ProgressView" }
+
+        return cleanClassName(className)
+    }
+
+    fileprivate static func extractTraits(from view: NSView) -> [String] {
+        var parts: [String] = []
+        let role = view.accessibilityRole()
+
+        if role == .button { parts.append("button") }
+        if role == .link { parts.append("link") }
+        if role == .image { parts.append("image") }
+        if role == .staticText { parts.append("staticText") }
+        if role == .textField { parts.append("textField") }
+        if role == .checkBox { parts.append("toggle") }
+        if role == .slider { parts.append("adjustable") }
+        if role == .list || role == .table { parts.append("list") }
+        if role == .tabGroup { parts.append("tabGroup") }
+
+        if !view.isAccessibilityEnabled() { parts.append("notEnabled") }
+
+        return parts
+    }
+
+    fileprivate static func findAccessibilityIdentifier(from view: NSView) -> String? {
+        var current: NSView? = view
+        for _ in 0..<5 {
+            guard let v = current else { break }
+            let id = v.accessibilityIdentifier()
+            if !id.isEmpty { return id }
+            current = v.superview
+        }
+        return nil
+    }
+
+    fileprivate static func findAccessibilityLabel(from view: NSView) -> String? {
+        var current: NSView? = view
+        for _ in 0..<5 {
+            guard let v = current else { break }
+            if let label = v.accessibilityLabel(), !label.isEmpty { return label }
+            current = v.superview
+        }
+        return nil
+    }
+
+    fileprivate static func buildViewPath(from view: NSView) -> String {
+        var components: [String] = []
+        var current: NSView? = view
+        var seen = Set<String>()
+
+        while let v = current {
+            let raw = String(describing: type(of: v))
+
+            if isHostingView(raw) {
+                components.append("HostingView")
+                break
+            }
+
+            let name = inferSwiftUIType(from: v, className: raw)
+            if !pathSkipNames.contains(name) && !seen.contains(name) {
+                components.append(name)
+                seen.insert(name)
+            }
+
+            current = v.superview
+            if components.count >= 10 { break }
+        }
+
+        return components.isEmpty ? "View" : components.reversed().joined(separator: " > ")
+    }
+}
+
+#endif
