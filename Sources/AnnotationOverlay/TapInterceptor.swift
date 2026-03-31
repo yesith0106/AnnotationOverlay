@@ -1,15 +1,13 @@
 import SwiftUI
 
-/// Callback delivering the tap/click location (in window coords) and the hit-tested view.
-typealias TapHandler = (_ windowPoint: CGPoint, _ hitView: PlatformView?) -> Void
+/// Callback delivering the tap/click location (in overlay coords) and extracted metadata.
+typealias TapHandler = (_ point: CGPoint, _ metadata: ViewMetadata?) -> Void
 
 // MARK: - iOS (UIKit)
 
 #if canImport(UIKit)
 import UIKit
 
-/// A transparent UIView overlay that intercepts taps when annotation mode is active,
-/// hit-tests through itself to find the underlying view, and reports back.
 struct TapInterceptorView: UIViewRepresentable {
     let isActive: Bool
     let onTap: TapHandler
@@ -37,7 +35,6 @@ final class TapInterceptorUIView: UIView {
         super.init(frame: frame)
         backgroundColor = .clear
         isUserInteractionEnabled = false
-
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         tap.cancelsTouchesInView = false
         addGestureRecognizer(tap)
@@ -56,26 +53,12 @@ final class TapInterceptorUIView: UIView {
         let pointInSelf = gesture.location(in: self)
         let windowPoint = convert(pointInSelf, to: nil)
 
-        // Step out of hit-test, find the initial view, then drill to the deepest child.
+        // Step out of hit-test chain, find metadata via accessibility + view hierarchy.
         isUserInteractionEnabled = false
-        let initialHit = window.hitTest(windowPoint, with: nil)
+        let metadata = ViewInspector.findMetadata(at: windowPoint, in: window)
         isUserInteractionEnabled = true
 
-        guard let root = initialHit, !isOwnOverlayView(root) else { return }
-
-        let deepest = ViewInspector.deepestView(at: windowPoint, in: root)
-        onTap?(windowPoint, deepest)
-    }
-
-    private func isOwnOverlayView(_ view: UIView) -> Bool {
-        var current: UIView? = view
-        while let v = current {
-            if let id = v.accessibilityIdentifier, id.hasPrefix("_annotationOverlay") {
-                return true
-            }
-            current = v.superview
-        }
-        return false
+        onTap?(windowPoint, metadata)
     }
 }
 
@@ -84,8 +67,6 @@ final class TapInterceptorUIView: UIView {
 #elseif canImport(AppKit)
 import AppKit
 
-/// A transparent NSView overlay that intercepts clicks when annotation mode is active,
-/// walks the subview tree to find the deepest view under the cursor, and reports back.
 struct TapInterceptorView: NSViewRepresentable {
     let isActive: Bool
     let onTap: TapHandler
@@ -111,7 +92,6 @@ final class TapInterceptorNSView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
-
         let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick(_:)))
         click.numberOfClicksRequired = 1
         addGestureRecognizer(click)
@@ -135,32 +115,16 @@ final class TapInterceptorNSView: NSView {
         let pointInSelf = gesture.location(in: self)
         let windowPoint = convert(pointInSelf, to: nil)
 
-        // Step out of hit-test, then walk the entire subview tree directly.
-        // This avoids NSView.hitTest coordinate-space issues and finds
-        // non-interactive SwiftUI elements that hitTest would skip.
+        // Step out of hit-test, then find metadata via accessibility + view hierarchy.
         isActive = false
-        let deepest = ViewInspector.deepestView(at: windowPoint, in: contentView)
+        let metadata = ViewInspector.findMetadata(at: windowPoint, in: window)
         isActive = true
 
-        if isOwnOverlayView(deepest) { return }
-
-        // Convert to top-left origin for consistency with SwiftUI coordinates.
+        // Convert to top-left origin for SwiftUI coordinate consistency.
         let flippedY = contentView.bounds.height - windowPoint.y
         let normalizedPoint = CGPoint(x: windowPoint.x, y: flippedY)
 
-        onTap?(normalizedPoint, deepest)
-    }
-
-    private func isOwnOverlayView(_ view: NSView) -> Bool {
-        var current: NSView? = view
-        while let v = current {
-            let id = v.accessibilityIdentifier()
-            if id.hasPrefix("_annotationOverlay") {
-                return true
-            }
-            current = v.superview
-        }
-        return false
+        onTap?(normalizedPoint, metadata)
     }
 }
 

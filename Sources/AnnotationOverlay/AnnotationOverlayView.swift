@@ -18,36 +18,44 @@ struct AnnotationOverlayView<Content: View>: View {
                 content
                     .frame(width: geo.size.width, height: geo.size.height)
 
-                // 2. Annotation markers & highlights (non-interactive)
+                // 2. Annotation markers & highlights (non-interactive, hidden from accessibility)
                 annotationMarkers(in: geo)
                     .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                     .accessibilityIdentifier("_annotationOverlayMarkers")
 
                 // 3. Tap interceptor (transparent platform overlay)
                 TapInterceptorView(
                     isActive: store.isAnnotationMode,
-                    onTap: { windowPoint, hitView in
-                        handleTap(windowPoint: windowPoint, hitView: hitView, in: geo)
+                    onTap: { point, metadata in
+                        handleTap(point: point, metadata: metadata, in: geo)
                     }
                 )
 
-                // 4. Note editor popover (interactive)
+                // 4. Note editor popover (hidden from accessibility hit-test)
                 if let editingID = store.editingAnnotationID,
                    let annotation = store.annotations.first(where: { $0.id == editingID }) {
                     noteEditor(for: annotation, in: geo)
+                        .accessibilityHidden(true)
                         .accessibilityIdentifier("_annotationOverlayEditor")
                 }
 
-                // 5. Floating toolbar
+                // 5. Floating toolbar (hidden from accessibility hit-test)
                 floatingToolbar()
+                    .accessibilityHidden(true)
                     .accessibilityIdentifier("_annotationOverlayToolbar")
 
                 // 6. Toast message
                 if let toast = store.toastMessage {
                     toastView(toast)
+                        .accessibilityHidden(true)
                 }
             }
             .onAppear {
+                let frame = geo.frame(in: .global)
+                overlayOrigin = frame.origin
+            }
+            .onChange(of: geo.size) { _ in
                 let frame = geo.frame(in: .global)
                 overlayOrigin = frame.origin
             }
@@ -56,13 +64,13 @@ struct AnnotationOverlayView<Content: View>: View {
 
     // MARK: - Tap Handler
 
-    private func handleTap(windowPoint: CGPoint, hitView: PlatformView?, in geo: GeometryProxy) {
-        guard let hitView else { return }
+    private func handleTap(point: CGPoint, metadata: ViewMetadata?, in geo: GeometryProxy) {
+        guard let metadata else { return }
 
         // Check if tap is near an existing annotation — if so, edit it
         let localPoint = CGPoint(
-            x: windowPoint.x - overlayOrigin.x,
-            y: windowPoint.y - overlayOrigin.y
+            x: point.x - overlayOrigin.x,
+            y: point.y - overlayOrigin.y
         )
         for annotation in store.annotations {
             let markerCenter = CGPoint(
@@ -75,7 +83,6 @@ struct AnnotationOverlayView<Content: View>: View {
             }
         }
 
-        let metadata = ViewInspector.extractMetadata(from: hitView)
         store.addAnnotation(metadata: metadata)
     }
 
@@ -215,7 +222,6 @@ private struct NoteEditorCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Header
             HStack {
                 Label("\(annotation.metadata.viewType)", systemImage: "scope")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -226,14 +232,12 @@ private struct NoteEditorCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            // Metadata summary
             if let id = annotation.metadata.accessibilityIdentifier {
                 Text("ID: \(id)")
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
 
-            // Note input
             TextField("Add a note for Claude...", text: $noteText, axis: .vertical)
                 .font(.system(size: 14))
                 .textFieldStyle(.plain)
@@ -249,7 +253,6 @@ private struct NoteEditorCard: View {
                         .fill(.ultraThinMaterial)
                 )
 
-            // Actions
             HStack(spacing: 12) {
                 Button(role: .destructive) {
                     onDelete()
@@ -297,7 +300,6 @@ private struct FloatingToolbarView: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            // Annotation mode toggle
             toolbarButton(
                 icon: "pin.fill",
                 isActive: store.isAnnotationMode,
@@ -312,7 +314,6 @@ private struct FloatingToolbarView: View {
             }
 
             if store.isAnnotationMode || !store.annotations.isEmpty {
-                // Annotation count badge
                 if !store.annotations.isEmpty {
                     Text("\(store.annotations.count)")
                         .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -322,7 +323,6 @@ private struct FloatingToolbarView: View {
                         .padding(.horizontal, 4)
                 }
 
-                // Copy as Markdown
                 toolbarButton(icon: "doc.on.clipboard", isActive: false) {
                     guard !store.annotations.isEmpty else { return }
                     MarkdownExporter.copyToClipboard(
@@ -334,7 +334,6 @@ private struct FloatingToolbarView: View {
                     }
                 }
 
-                // Copy as JSON
                 toolbarButton(icon: "curlybraces", isActive: false) {
                     guard !store.annotations.isEmpty else { return }
                     let json = MarkdownExporter.exportJSON(annotations: store.annotations)
@@ -344,7 +343,6 @@ private struct FloatingToolbarView: View {
                     }
                 }
 
-                // Clear all
                 toolbarButton(icon: "trash", isActive: false, activeColor: .red) {
                     withAnimation(.spring(duration: 0.3)) {
                         store.clearAll()
